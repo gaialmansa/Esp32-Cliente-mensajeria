@@ -100,7 +100,7 @@ void recuperarUsuariosGrupo(int grupo)
     // Especificamos el header content-type
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     // Preparamos los datos POST
-    String postData = "id_grupo=4"; 
+    String postData = "id_grupo="+ String(grupo); 
     // Hacemos la petición POST
     int httpResponseCode = http.POST(postData);
     // Verificamos la respuesta

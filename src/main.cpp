@@ -5,10 +5,15 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-
+#include <NTPClient.h>
 
 void cls();
 void recuperarUsuariosGrupo(int grupo);
+void enviarPlaca();
+String replaceSpaces(String);
+String strNow();
+void registrar();
+int id_user = 0;
 
 /*Definimos nuestras credenciales de la red WiFi*/
 
@@ -16,6 +21,8 @@ void recuperarUsuariosGrupo(int grupo);
 const char* ssid = "WPROFESIONALES";
 const char* pass = "temporal%";
 TFT_eSPI tft = TFT_eSPI();
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "time.nist.gov", +1 * 3600);
 void setup() 
 {
     String mensaje;
@@ -30,30 +37,6 @@ void setup()
     digitalWrite(TFT_BL, HIGH);
     tft.setTextSize(1);
     tft.setTextFont(1); // usaremos 4 para texto y 8 para numeros grandes
-
-    /*
-    // Demostración de texto
-    tft.setTextDatum(TC_DATUM);  // Top-Center
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    
-    // Diferentes tamaños de texto
-    tft.setTextSize(1);
-    tft.drawString("Tamaño 1", 120, 0);
-    tft.setTextSize(2);
-    tft.drawString("Tamaño 2", 120, 20);
-    
-    // Diferentes colores
-    tft.setTextSize(1);
-    tft.setTextColor(TFT_RED);
-    tft.drawString("Texto Rojo", 120, 50);
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString("Texto Verde", 120, 60);
-    tft.setTextColor(TFT_BLUE);
-    tft.drawString("Texto Azul", 120, 70);
-    
-    // Dibujar un marco
-    tft.drawRect(0, 90, tft.width(), 45, TFT_WHITE);
-    */
     cls();
     tft.println("Inicializando WiFI ");
     // inicializamos wifi
@@ -74,7 +57,8 @@ void setup()
     tft.print(mensaje);
     Serial.println(mensaje);
     delay(1000);
-    
+    if (id_user == 0)   // no tenemos usuario
+        registrar();
     cls();
 }
 
@@ -90,68 +74,37 @@ void cls()
  tft.setTextColor(TFT_WHITE, TFT_BLACK); // imprimiremos en blanco sobre negro
  tft.setCursor(0,0);
 }
-void recuperarUsuariosGrupo(int grupo)
-{
- HTTPClient http;
- int f;    
-    // Iniciamos la conexión
-    http.begin("http://intjk.es:27031/mensajeria/api/recuperarusuariosgrupo");
-    //http.begin("http://192.168.10.152/mensajeria/api/recuperarusuariosgrupo");
-    // Especificamos el header content-type
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    // Preparamos los datos POST
-    String postData = "id_grupo="+ String(grupo); 
-    // Hacemos la petición POST
-    int httpResponseCode = http.POST(postData);
-    // Verificamos la respuesta
-    if(httpResponseCode > 0)
-    {
-      String response = http.getString();
-      cls();
-      tft.setTextFont(2);
-      //tft.println(response);
-      Serial.println(response);
-      const size_t capacity = JSON_ARRAY_SIZE(10) * (JSON_OBJECT_SIZE(7) + 50); // Ajustar el tamaño según tu JSON
-      DynamicJsonDocument doc(capacity);
-      DeserializationError error = deserializeJson(doc, response);
-Serial.println("Ya ha desserializado la respuesta");
-        if(!error)
-        {
-            Serial.println("No error. ");
-            
-           JsonArray usuarios = doc.as<JsonArray>();
-Serial.println(usuarios.size());
-            for (JsonVariant usuario : usuarios) 
-            {
-                Serial.println("Estamos en el bucle");
-                String id_grupo = usuario["id_grupo"];
-                String id_usuario = usuario["id_usuario"];
-                String id = usuario["id"];
-                String usuario_nombre = usuario["usuario"];
-                String nombre = usuario["nombre"];
-                String observaciones = usuario["observaciones"];
-                String grupo = usuario["grupo"];
 
-                Serial.print("ID Grupo: ");
-                Serial.println(id_grupo);
-                Serial.println(nombre);
-                tft.println(nombre);
-                // ... (Imprimir otros campos)
-            }
-        }
-        else
-        {
-            tft.println("Se ha producido un error");
-            Serial.println("Se ha producido un error");
-            Serial.println(response);
-        }
+String replaceSpaces(String str) 
+{
+  String result = "";
+  for (int i = 0; i < str.length(); i++) {
+    if (str[i] == ' ') {
+      result += "%20";
+    } else {
+      result += str[i];
     }
-    else 
-    {
-      Serial.println("Error en petición HTTP: " + String(httpResponseCode));
-      tft.println("Error en petición HTTP: " + String(httpResponseCode));
-    }
+  }
+  return result;
+}
+String strNow()
+{
+  timeClient.update();
+
+  // Obtener la hora en formato Unix
+  unsigned long epochTime = timeClient.getEpochTime();
+
+  // Convertir a una estructura de tiempo
+  struct tm *ptm = gmtime((time_t *)&epochTime);
+
+  // Formatear la hora como un string
+  char formattedTime[32];
+  sprintf(formattedTime, "%02d:%02d:%02d", ptm->tm_hour, ptm->tm_min, ptm->tm_sec);
+return(formattedTime);
+}
+void registrar() //  sacar un numero aleatorio por pantalla. Luego consulta el api hasta que devuelve un numero de usuario.
+{
+    int numero = random(100,999);
+    tft.println(numero);
     
-    // Liberamos recursos
-    http.end();
 }

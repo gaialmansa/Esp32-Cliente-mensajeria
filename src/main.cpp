@@ -13,6 +13,7 @@
 void cls();
 void recuperarUsuariosGrupo(int grupo);
 void enviarPlaca();
+
 String replaceSpaces(String);
 String strNow();
 
@@ -24,31 +25,33 @@ const char* ssid = "WPROFESIONALES";
 const char* pass = "temporal%";
 TFT_eSPI tft = TFT_eSPI();
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "time.nist.gov", +1 * 3600);
+NTPClient timeClient(ntpUDP, "pool.ntp.org", +1 * 3600);
 void setup() 
 {
     String mensaje;
     Serial.begin(9600);
     // Inicializar pantalla
     tft.init();
-    tft.setRotation(1);  // Landscape
+    tft.setRotation(1);  // 0 Portrait/ 1 Landscape
     tft.fillScreen(TFT_BLACK);
     
     // Configurar retroiluminación
     pinMode(TFT_BL, OUTPUT);
     digitalWrite(TFT_BL, HIGH);
     tft.setTextSize(1);
-    tft.setTextFont(1); // usaremos 4 para texto y 8 para numeros grandes
+    tft.setTextFont(4); // usaremos 4 para texto y 8 para numeros grandes
 
     
-    cls();
-    tft.println("Inicializando WiFI ");
+    //cls();
+    tft.println("MAC: ");
+    tft.println(WiFi.macAddress());
+    //tft.println("Inicializando WiFI ");
     // inicializamos wifi
     WiFi.begin(ssid, pass);
     delay(2000);
-    cls();
+    //cls();
     mensaje = "Intentando conectar a "+String(ssid);
-    tft.println(mensaje);
+    //tft.println(mensaje);
     Serial.println(mensaje);
     while (WiFi.status() != WL_CONNECTED) 
     {
@@ -57,23 +60,27 @@ void setup()
      Serial.println("Aún no.");
     }
     mensaje = "Conectado a "+String(ssid);
-    tft.println();
-    tft.print(mensaje);
+    //tft.println();
+    tft.println(mensaje);
     Serial.println(mensaje);
-    
+    timeClient.setTimeOffset(3600);
+    timeClient.begin();
+    if (!timeClient.update()) 
+      tft.println("Error al sincronizar NTP: SSL/conexion fallida");
+        
     mensaje = "Ajustando hora." + strNow();
  
 
-    tft.print(mensaje);
+    tft.println(mensaje);
     Serial.println(mensaje);
     
     delay(1000);
-    cls();
+    //cls();
 }
 
 void loop() 
 {
-    enviarPlaca();
+    //enviarPlaca();
 
     for(;;); //lo dejamos colgado
     
@@ -90,7 +97,7 @@ void enviarPlaca()
     // Iniciamos la conexión
     String mensaje;
     mensaje = replaceSpaces("Hay una petición de rayos en el control de urgencias"); 
-    http.begin("http://intjk.es:27031/mensajeria/api/mcrearg");
+    http.begin("https://hospital.almansa.ovh/api/mcrearg");
     // Especificamos el header content-type
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
     // Preparamos los datos POST
@@ -119,7 +126,7 @@ void recuperarUsuariosGrupo(int grupo)
  HTTPClient http;
  int f;    
     // Iniciamos la conexión
-    http.begin("http://intjk.es:27031/mensajeria/api/recuperarusuariosgrupo");
+    http.begin("https://hospital.almansa.ovh/api/recuperarusuariosgrupo");
     //http.begin("http://192.168.10.152/mensajeria/api/recuperarusuariosgrupo");
     // Especificamos el header content-type
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");

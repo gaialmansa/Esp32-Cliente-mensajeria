@@ -15,7 +15,8 @@
 void cls();
 void recuperarUsuariosGrupo(int grupo);
 void enviarPlaca();
-void Api(char metodo[], char *parametros[], int numparam);
+void Api(char metodo[], String parametros[], int numparam);
+void regSys();
 
 String replaceSpaces(String);
 String strNow();
@@ -28,8 +29,7 @@ TFT_eSPI tft = TFT_eSPI();  // inicializamos pantalla
 WiFiUDP ntpUDP;             // instanciamos WiFi
 NTPClient timeClient(ntpUDP, "pool.ntp.org", +1 * 3600);  // Cliente NTP para ajustar la hora
 HTTPClient apicall;         // cliente HTTP para llamar al API   
-DynamicJsonDocument doc(512); // calculamos medio k para la respuesta del api
-
+DynamicJsonDocument doc(1024); // calculamos medio k para la respuesta del api
 void setup() 
 {
     String mensaje;
@@ -55,7 +55,7 @@ void setup()
     // inicializamos wifi
     WiFi.begin(ssid, pass);
     delay(2000);
-    mensaje = "Intentando conectar a "+String(ssid);
+    mensaje = "Intentando conectar a "+String(ssid);  // los parametros de la conexion se leen en local.h
     tft.println(mensaje);
 
     #ifdef _DEBUG
@@ -66,13 +66,11 @@ void setup()
     {
      delay(500);
      tft.print(".");
-     #ifdef _DEBUG
-     Serial.println("Aún no.");
-     #endif
-    }
+     }
     mensaje = "Conectado a "+String(ssid);
     tft.println(mensaje);
     Serial.println(mensaje);
+    // Puesta en hora
     timeClient.setTimeOffset(3600);
     timeClient.begin();
     if (!timeClient.update()) 
@@ -87,19 +85,49 @@ void setup()
     #endif
 
     delay(1000);
-    //cls();
+    cls();
+    apicall.setTimeout(5000);
+    regSys();
+    delay(5000); // esperamos 5 segundos para que se vea el registro correcto
+    cls();       // y borramos la pantalla 
 }
 
 void loop() 
 {
     //enviarPlaca();
-    cls();
-    char *parms[] = {"parametro1=valor1", "parametro2=valor2", "parametro3=valor3"};
-    
-    Api("Caca", parms, 3);
+    //cls();
 
     for(;;); //lo dejamos colgado
     
+}
+/**
+ *  regSys
+ *  Registra al usuario en el sistema. Se llama a la API, al metodo bregister(mac).
+ *  Se mantiene la llamada en un bucle hasta que el usuario es no nulo. Entonces regresa y se ejecuta loop.
+ */
+void regSys()
+{
+  String nombre,usuario = "null";
+  String mac[1];
+  mac[0] = "mac=";
+  mac[0] += WiFi.macAddress();
+  tft.print("Registrando el dispositivo ");
+  tft.println(mac[0]);
+  while (usuario == "null") // repetiremos hasta que el usuario tenga un valor
+  {
+    Api("bregister",mac,1);
+    usuario = doc["usuario"].as<String>();
+     nombre = doc["nombre" ].as<String>();
+    #ifdef _DEBUG
+    Serial.println("No registrado.");
+    #endif
+    delay(1000);  // esperamos un segundo
+  }
+  
+  tft.printf("Registrado para el usuario\n %s", nombre.c_str());
+  #ifdef _DEBUG
+  Serial.printf("Registrado para el usuario\n %s\n%s",usuario.c_str(), nombre.c_str());
+  #endif
 }
 /**
  *  Borrado de pantalla
@@ -115,35 +143,38 @@ void cls()
  * Hace una llamada al metodo del Api indicado con los parametros que van en el array
  * Los parametros van en formato 'paramname=paramvalue'
  */
-void Api(char metodo[], char *parametros[],int numparam)
+void Api(char metodo[], String parametros[],int numparam)
 {
   int f, responsecode;
-  char postData[250]; // suponemos que sera suficiente para el conjunto de parametros a pasar al api
-  char url[250];
-  String payload;
+  String postData, url, payload;
   DeserializationError error;   // por si esta mal formada la respuesta
 
-  strcpy(postData, parametros[0]);
+  postData = parametros[0];
   if(numparam >1)
   {
     for (f = 1; f < numparam; f++) // concatenamos los elementos pasados en parametros en el formato parm1=valor1&param2=valor2....
       {
-        strcat(postData,"&") ;
-        strcat(postData, parametros[f]);
+        postData += "&";
+        postData += parametros[f];
       }
       #ifdef _DEBUG
       Serial.print(postData);
       #endif
   }
-  strcat(url, _URL);
-  strcat(url,metodo); // con esto queda formada la url del API con su metodo al final
+  #ifdef _DEBUG
+  Serial.println(postData);
+  #endif
+  url = _URL;
+  url += metodo; // con esto queda formada la url del API con su metodo al final
   apicall.begin(url);    // iniciamos la llamada al api
   // Especificamos el header content-type
   apicall.addHeader("Content-Type", "application/x-www-form-urlencoded");
   responsecode = apicall.POST(postData);  
   if(responsecode != 200)
     {
-      tft.printf("Ha habido un error %d al comunicar con el api.",responsecode);
+      tft.printf("Ha habido un error %d al comunicar con el api.\n",responsecode);
+      tft.println(url);
+      tft.println(postData);
     }
   #ifdef _DEBUG
   Serial.print(responsecode);
@@ -159,8 +190,6 @@ void Api(char metodo[], char *parametros[],int numparam)
     }
   #endif
 }
-
-
 /**
  *  Envía un mensaje fijo. Esta funcion es para estar en sitios como la bandeja de Rx del control de enfermeria o en triaje
  *  TODO: hay que sacar la comunicacion con el cliente http y abstraerla en una funcion a que tome la URL de un #define en una cabecera

@@ -7,14 +7,18 @@
 #include <ArduinoJson.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include <Salmon_Season12pt7b.h>
+#include <Salmon_Season20pt7b.h>
 
 #include <local.h>
-#define _URL "https://hospital.almansa.ovh/api/"
-
+//#define _URL "https://hospital.almansa.ovh/api/"
+#define _URL "http://192.168.1.248/mensajeria/api/"
+#define nmensajes 7         // numero de mensajes que se recuperan por defecto. Como depende de la pantalla, lo dejamos aqui.
 
 void cls();
 void recuperarUsuariosGrupo(int grupo);
 void enviarPlaca();
+void obtenerMensajes();
 void Api(char metodo[], String parametros[], int numparam);
 void regSys();
 
@@ -29,7 +33,10 @@ TFT_eSPI tft = TFT_eSPI();  // inicializamos pantalla
 WiFiUDP ntpUDP;             // instanciamos WiFi
 NTPClient timeClient(ntpUDP, "pool.ntp.org", +1 * 3600);  // Cliente NTP para ajustar la hora
 HTTPClient apicall;         // cliente HTTP para llamar al API   
-DynamicJsonDocument doc(1024); // calculamos medio k para la respuesta del api
+DynamicJsonDocument doc(1024); // calculamos un k para la respuesta del api
+int offset = 0;        // offset para mostrar mensajes, Inicialmente es cero
+int user = 0;            // id del usuario registrado
+
 void setup() 
 {
     String mensaje;
@@ -40,15 +47,13 @@ void setup()
     tft.init();
     tft.setRotation(1);  // 0 Portrait/ 1 Landscape
     tft.fillScreen(TFT_BLACK);
-    
-    // Configurar retroiluminación
+    tft.setFreeFont(&Salmon_Season12pt7b);  // Nota el & antes del nombre
+    //tft.setFreeFont(&Salmon_Season20pt7b);
+    // Configurar retroiluminación. En realidad es encender o apagar la pantalla
     pinMode(TFT_BL, OUTPUT);
-    digitalWrite(TFT_BL, HIGH);
-    tft.setTextSize(1);
-    tft.setTextFont(4); // usaremos 4 para texto y 8 para numeros grandes
-
-    
-    //cls();
+    digitalWrite(TFT_BL, HIGH); // poniendolo en low, apagamos la pantalla
+       
+    tft.println();
     tft.println("MAC: ");
     tft.println(WiFi.macAddress());
     tft.println("Inicializando WiFI ");
@@ -84,21 +89,49 @@ void setup()
     Serial.println(mensaje);
     #endif
 
-    delay(1000);
+   // delay(1000);
     cls();
     apicall.setTimeout(5000);
     regSys();
-    delay(5000); // esperamos 5 segundos para que se vea el registro correcto
+   // delay(5000); // esperamos 5 segundos para que se vea el registro correcto
     cls();       // y borramos la pantalla 
 }
 
 void loop() 
 {
     //enviarPlaca();
-    //cls();
-
+    cls();
+    obtenerMensajes();
+    
     for(;;); //lo dejamos colgado
     
+}
+/**
+ * ObtenerMensajes
+ * recupera los (maximo 8) últimos mensajes, dependiendo de la variable global offset
+ */
+void obtenerMensajes()
+{
+ tft.setFreeFont(&Salmon_Season20pt7b);
+ tft.drawString(" ULTIMOS MENSAJES",0,0);
+ tft.setFreeFont(&Salmon_Season12pt7b);
+ tft.drawFastHLine(1, 33, 320, TFT_WHITE);
+ tft.setCursor(0,55);
+
+
+
+ String parametros[3]; // Primero declaramos el array con tamaño fijo
+ parametros[0] = "id_usuario=" + String(user);
+ parametros[1] = "nmensajes=" + String(nmensajes);
+ parametros[2] = "offset=" + String(offset);
+ Api("mrecuperar",parametros,3);
+ JsonArray listaMensajes = doc.as<JsonArray>(); // recuperamos la respuesta
+ for (int i = 0; i < listaMensajes.size(); i++) 
+ {
+  JsonObject mensaje = listaMensajes[i].as<JsonObject>();
+  tft.println(mensaje["mensaje"].as<String>());
+ }
+ return ;
 }
 /**
  *  regSys
@@ -117,16 +150,17 @@ void regSys()
   {
     Api("bregister",mac,1);
     usuario = doc["usuario"].as<String>();
-     nombre = doc["nombre" ].as<String>();
+    nombre = doc["nombre" ].as<String>();
+    user = doc["id_usuario"].as<int>();
     #ifdef _DEBUG
     Serial.println("No registrado.");
     #endif
     delay(1000);  // esperamos un segundo
   }
   
-  tft.printf("Registrado para el usuario\n %s", nombre.c_str());
+  tft.printf("Registrado para el usuario %d\n %s", user, nombre.c_str());
   #ifdef _DEBUG
-  Serial.printf("Registrado para el usuario\n %s\n%s",usuario.c_str(), nombre.c_str());
+  Serial.printf("Registrado para el usuario %d\n %s", user, nombre.c_str());
   #endif
 }
 /**
@@ -136,7 +170,7 @@ void cls()
 {
  tft.fillScreen(TFT_BLACK);
  tft.setTextColor(TFT_WHITE, TFT_BLACK); // imprimiremos en blanco sobre negro
- tft.setCursor(0,0);
+ tft.setCursor(0,16);
 }
 /**
  * Api
@@ -157,13 +191,7 @@ void Api(char metodo[], String parametros[],int numparam)
         postData += "&";
         postData += parametros[f];
       }
-      #ifdef _DEBUG
-      Serial.print(postData);
-      #endif
   }
-  #ifdef _DEBUG
-  Serial.println(postData);
-  #endif
   url = _URL;
   url += metodo; // con esto queda formada la url del API con su metodo al final
   apicall.begin(url);    // iniciamos la llamada al api
@@ -186,6 +214,9 @@ void Api(char metodo[], String parametros[],int numparam)
     {
     tft.print("Error al parsear JSON: ");
     tft.println(error.f_str());
+    Serial.print("Error al parsear JSON: ");
+    Serial.println(error.f_str());
+    Serial.println(payload);
     return;
     }
   #endif

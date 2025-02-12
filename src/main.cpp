@@ -11,9 +11,20 @@
 #include <Salmon_Season20pt7b.h>
 
 #include <local.h>
-//#define _URL "https://hospital.almansa.ovh/api/"
-#define _URL "http://192.168.1.248/mensajeria/api/"
 #define nmensajes 7         // numero de mensajes que se recuperan por defecto. Como depende de la pantalla, lo dejamos aqui.
+#define BUTTON1_PIN 12
+#define BUTTON2_PIN 13
+#define BUTTON3_PIN 14
+#define BUTTON4_PIN 26
+#define BUTTON5_PIN 27
+
+
+// Variables para manejar el debounce
+volatile unsigned long lastDebounceTime[5] = {0, 0, 0, 0, 0};
+const unsigned long debounceDelay = 200;  // Ajusta este valor según necesites
+
+// Variables para almacenar el estado de los botones
+volatile bool buttonState[5] = {false, false, false, false, false};
 
 void cls();
 void recuperarUsuariosGrupo(int grupo);
@@ -21,6 +32,11 @@ void enviarPlaca();
 void obtenerMensajes();
 void Api(char metodo[], String parametros[], int numparam);
 void regSys();
+void button1ISR();
+void button2ISR();
+void button3ISR();
+void button4ISR();
+void button5ISR();
 
 String replaceSpaces(String);
 String strNow();
@@ -36,6 +52,7 @@ HTTPClient apicall;         // cliente HTTP para llamar al API
 DynamicJsonDocument doc(1024); // calculamos un k para la respuesta del api
 int offset = 0;        // offset para mostrar mensajes, Inicialmente es cero
 int user = 0;            // id del usuario registrado
+bool change = false;    // flag para saber cuando se ha pulsado un boton
 
 void setup() 
 {
@@ -81,29 +98,73 @@ void setup()
     if (!timeClient.update()) 
       tft.println("Error al sincronizar NTP: SSL/conexion fallida");
         
-    mensaje = "Ajustando hora." + strNow();
+    mensaje = "Ajustando hora:" + strNow();
  
     tft.println(mensaje);
 
     #ifdef _DEBUG
     Serial.println(mensaje);
     #endif
-
-   // delay(1000);
-    cls();
     apicall.setTimeout(5000);
     regSys();
-   // delay(5000); // esperamos 5 segundos para que se vea el registro correcto
+    #ifdef _DEBUG
+     delay(5000); // esperamos 5 segundos para que se vea el registro correcto
+    #endif
     cls();       // y borramos la pantalla 
+    pinMode(BUTTON1_PIN, INPUT_PULLUP);
+    pinMode(BUTTON2_PIN, INPUT_PULLUP);
+    pinMode(BUTTON3_PIN, INPUT_PULLUP);
+    pinMode(BUTTON4_PIN, INPUT_PULLUP);
+    pinMode(BUTTON5_PIN, INPUT_PULLUP);
+  
+    // Configurar las interrupciones
+    attachInterrupt(BUTTON1_PIN, button1ISR, FALLING);
+    attachInterrupt(BUTTON2_PIN, button2ISR, FALLING);
+    attachInterrupt(BUTTON3_PIN, button3ISR, FALLING);
+    attachInterrupt(BUTTON4_PIN, button4ISR, FALLING);
+    attachInterrupt(BUTTON5_PIN, button5ISR, FALLING);
+  
 }
 
 void loop() 
 {
     //enviarPlaca();
-    cls();
+    //cls();
     obtenerMensajes();
     
     for(;;); //lo dejamos colgado
+    /*if(buttonState[0])
+      {
+        tft.drawString("Boton 0",10,40);
+      }
+      if(buttonState[1])
+      {
+        tft.drawString("Boton 1",10,40);
+      }
+      if(buttonState[2])
+      {
+        tft.drawString("Boton 2",10,40);
+      }
+      if(buttonState[3])
+      {
+        tft.drawString("Boton 3",10,40);
+      }
+      if(buttonState[4])
+      {
+        tft.drawString("Boton 4",10,40);
+      }
+      tft.drawString("Chequeo de botones",10,40);
+      for (int i = 0; i < 5; i++) {
+        if (buttonState[i]) 
+        {
+          Serial.print("Botón ");
+          Serial.print(i + 1);
+          Serial.println(" presionado!");
+          buttonState[i] = false;  // Resetear el estado
+        }
+      delay(10); 
+ 
+    }*/
     
 }
 /**
@@ -205,7 +266,8 @@ void Api(char metodo[], String parametros[],int numparam)
       tft.println(postData);
     }
   #ifdef _DEBUG
-  Serial.print(responsecode);
+  Serial.print("Respuesta http:");
+  Serial.println(responsecode);
   #endif
   payload = apicall.getString();
   error = deserializeJson(doc,payload);   // deserializamos la respuesta y la metemos en el objeto doc
@@ -369,4 +431,53 @@ String strNow()
   sprintf(formattedTime, "%02d:%02d:%02d", ptm->tm_hour, ptm->tm_min, ptm->tm_sec);
 return(formattedTime);
 }
+void IRAM_ATTR button1ISR() 
+{
+  unsigned long currentTime = millis();
+  if (currentTime - lastDebounceTime[0] > debounceDelay) {
+    buttonState[0] = true;
+    lastDebounceTime[0] = currentTime;
+  }
+  tft.println("button1ISR");
+}
 
+void IRAM_ATTR button2ISR() 
+{
+  unsigned long currentTime = millis();
+  if (currentTime - lastDebounceTime[1] > debounceDelay) {
+    buttonState[1] = true;
+    change = true;
+    lastDebounceTime[1] = currentTime;
+  }
+}
+
+void IRAM_ATTR button3ISR() 
+{
+  unsigned long currentTime = millis();
+  if (currentTime - lastDebounceTime[2] > debounceDelay) {
+    buttonState[2] = true;
+    change = true;
+    lastDebounceTime[2] = currentTime;
+  }
+}
+
+void IRAM_ATTR button4ISR() 
+{
+  unsigned long currentTime = millis();
+  if (currentTime - lastDebounceTime[3] > debounceDelay) {
+    buttonState[3] = true;
+    change = true;
+    lastDebounceTime[3] = currentTime;
+  }
+}
+
+void IRAM_ATTR button5ISR() 
+{
+  unsigned long currentTime = millis();
+  if (currentTime - lastDebounceTime[4] > debounceDelay) {
+    buttonState[4] = true;
+    change = true;
+    lastDebounceTime[4] = currentTime;
+  }tft.println("button5ISR");
+
+}

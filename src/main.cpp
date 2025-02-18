@@ -1,67 +1,7 @@
-#include <Arduino.h>
-#include <TFT_eSPI.h>
-#include <SPI.h>
-#include <Wire.h>
-//#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <NTPClient.h>
-#include <WiFiUdp.h>
-#include <Salmon_Season12pt7b.h>
-#include <Salmon_Season20pt7b.h>
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include <esp_pm.h>
 
-
-#include <local.h>
-#define nmensajes 7         // numero de mensajes que se recuperan por defecto. Como depende de la pantalla, lo dejamos aqui.
-#define UP_PIN 12
-#define DOWN_PIN 13
-#define LEFT_PIN 14
-#define RIGHT_PIN 26
-#define PUSH_PIN 27
-#define WAKEPIN GPIO_NUM_27
-
-
-// Variables para manejar el debounce
-volatile unsigned long lastDebounceTime[5] = {0, 0, 0, 0, 0};
-const unsigned long debounceDelay = 200;  // Ajusta este valor según necesites
-
-
-void cls();
-void recuperarUsuariosGrupo(int grupo);
-void enviarPlaca();
-void obtenerMensajes();
-void Api(char metodo[], String parametros[], int numparam);
-void regSys();
-void upISR();
-void downISR();
-void leftISR();
-void rightISR();
-void pushISR();
-void despertar();
-void dormir();
-void chkMsg();
-void hayMensajeNuevo();
-
-String replaceSpaces(String);
-String strNow();
-
-
-/*Las credenciales de la red WiFi están definidas en el fichero local.h, que está en gitignore.*/
-
-
-TFT_eSPI tft = TFT_eSPI();  // inicializamos pantalla
-WiFiUDP ntpUDP;             // instanciamos WiFi
-NTPClient timeClient(ntpUDP, "pool.ntp.org", +1 * 3600);  // Cliente NTP para ajustar la hora
-HTTPClient apicall;         // cliente HTTP para llamar al API   
-DynamicJsonDocument doc(1024); // calculamos un k para la respuesta del api
-int offset = 0;        // offset para mostrar mensajes, Inicialmente es cero
-int user = 0;            // id del usuario registrado
-bool pulsado = false;     // cambia de valor cuando se pulsa el joystick
-bool apiError = false;    // flag de error en la llamada al api
-RTC_DATA_ATTR bool firstBoot = true;
+#include <beeper.h>
+#include <tft.h>
+#include <WiFibeeper.h>
 
 void setup() 
 {
@@ -70,60 +10,29 @@ void setup()
     Serial.begin(9600);
     #endif
     // Inicializar pantalla
-    tft.init();
-    tft.setRotation(1);  // 0 Portrait/ 1 Landscape
-    tft.fillScreen(TFT_BLACK);
-    tft.setFreeFont(&Salmon_Season12pt7b);  // Nota el & antes del nombre
-    pinMode(TFT_BL, OUTPUT);  // pin para la iluminacion de la pantalla. Lo manejaremos con tftOn y tftOff
-    despertar();              // terminamos de poner a punto la pantalla tft
-       
-    tft.println();
-    tft.println("Inicializando WiFI ");
+    iniScreen();
     // inicializamos wifi
-     // Configurar WiFi en modo WIFI_PS_MIN_MODEM para mejor estabilidad
-    WiFi.mode(WIFI_STA);
-    //WiFi.setSleep(false);
-     // Configurar WiFi para permitir modem-sleep
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-  
-    WiFi.begin(ssid, pass);
-    firstBoot = false;
-    delay(2000);
-    mensaje = "Intentando conectar a "+String(ssid);  // los parametros de la conexion se leen en local.h
-    tft.println(mensaje);
-    delay(5000);
-    #ifdef _DEBUG
-    Serial.println(mensaje);
-    #endif
+    WiFiStart();
     
-    while (WiFi.status() != WL_CONNECTED) 
-    {
-     delay(500);
-     tft.print(".");
-     }
-    mensaje = "Conectado a "+String(ssid);
-    tft.println(mensaje);
-    Serial.println(mensaje);
     // Puesta en hora
     timeClient.setTimeOffset(3600);
     timeClient.begin();
     if (!timeClient.update()) 
-      tft.println("Error al sincronizar NTP: SSL/conexion fallida");
-        
+      tftPrint("Error al sincronizar NTP: SSL/conexion fallida");
     mensaje = "Ajustando hora:" + strNow();
-    cls();
-    tft.println(mensaje);
-    tft.println("MAC: ");
-    tft.println(WiFi.macAddress());
-    
 
+    // Imprimimos la MAC en la pantalla
+    cls();
+    tft.println("MAC: ");
+    tftPrint(WiFi.macAddress());
+    
     #ifdef _DEBUG
     Serial.println(mensaje);
     #endif
     apicall.setTimeout(5000);
-    regSys();
+    regSys();     // Chequeamos hasta que esta registrado en el sistema
     #ifdef _DEBUG
-     delay(5000); // esperamos 5 segundos para que se vea el registro correcto
+     delay(5000); // esperamos 1 segundos para que se vea el registro correcto
     #endif
     cls();       // y borramos la pantalla 
 
@@ -137,20 +46,17 @@ void setup()
     // Configuracion de las interrupciones. De entrada solo puede usar el pulsador
     attachInterrupt(PUSH_PIN, pushISR, FALLING);
 
-     // Configurar el temporizador para despertar en 5 segundos
-   esp_sleep_enable_timer_wakeup(5 * 1000000);
-   // Configurar la interrupción del botón para despertar el ESP32
-   esp_sleep_enable_ext0_wakeup(WAKEPIN, 0); // 0 para FALLING, 1 para RISING
-  
+    // Configurar el temporizador para despertar en 5 segundos
+    esp_sleep_enable_timer_wakeup(5 * 1000000);
+    // Configurar la interrupción del botón para despertar el ESP32
+    //esp_sleep_enable_ext0_wakeup(WAKEPIN, 0); // 0 para FALLING, 1 para RISING
+    //gpio_wakeup_enable(GPIO_NUM_3, GPIO_INTR_LOW_LEVEL); // x es el pin que quieres usar
+    esp_sleep_enable_gpio_wakeup();
 }
 void loop() 
 {
-   
    chkMsg();    // consulta la API para ver si hay mensajes nuevos para el usuario
    dormir();  // apagamos la pantalla y ponemos el procesador en modo light sleep durante 5 segundos
-   //delay(5000);
-   
-
 }
 /**
  *  chkMsg()
@@ -161,10 +67,13 @@ void chkMsg()
 {
   String User[1];
   User[0] = "id_usuario=" + String(user);
+  while (true)
+  {
   Api("mnv",User,1);  // llamamos al api para recuperar el primer mensaje sin leer del usuario
   if(!doc.containsKey("mensaje")) // esto es que no hay ningun mensaje
     return;
   hayMensajeNuevo();
+  }
 }
 /**
  *  hayMensajeNuevo
@@ -173,54 +82,88 @@ void chkMsg()
  */
 void hayMensajeNuevo()
 {
-  despertar();  //despierta la pantalla
+  int anterior;
+  despertarTFT();  //despierta la pantalla
   cls();
-  tft.setFreeFont(&Salmon_Season20pt7b);
-  tft.drawString(" NUEVO MENSAJE",0,0);
-  tft.setFreeFont(&Salmon_Season12pt7b); 
-  tft.drawFastHLine(1, 33, 320, TFT_WHITE);
-  tft.setCursor(0,55);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_YELLOW);
+  tft.drawString("NUEVO MENSAJE",0,0);
+  tft.setTextSize(1);
+  tft.drawFastHLine(0, 17, 160, TFT_YELLOW);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(0,30);
   tft.print("De ");
-  tft.println(doc["origen"].as<String>());
-  tft.println(doc["mensaje"].as<String>());
+  tftPrint(doc["origen"].as<String>());
+  tftPrint(doc["mensaje"].as<String>());
   tft.print("Enviado a las ");
   String timestamp = doc["hora"].as<String>();
-  tft.println(timestamp.substring(11,19));
+  tftPrint(timestamp.substring(11,19));
   tft.print("Recibido a las ");
   tft.println(strNow());
+  tft.println();
+  aiMenu(opt);
+  anterior =0;  // opcion anteriormente seleccionada
   pulsado = false;
-  attachInterrupt(PUSH_PIN, pushISR, FALLING);
+  attachInterrupt(PUSH_PIN, pushISR, FALLING);    // pulsador
+  attachInterrupt(UP_PIN, upISR, FALLING);
+  attachInterrupt(DOWN_PIN, downISR, FALLING);
+
   while(!pulsado) // se queda bloqueado aqui hasta que pulse el mando
-  { delay(100);}
+  {
+    if (opt != anterior)  // se pulso arriba o abajo
+    {
+      aiMenu(opt);
+      anterior = opt;
+    } 
+    delay(100);
+  }
   String parms[1];
   parms[0] = "id=" + doc["id"].as<String>();
   Api("mver",parms,1);
+  if(opt == 0) // aceptar
+   Api("matender",parms,1);   // si se ignora, no hace nada
   cls();
-
+  #ifdef _DEBUG
+  Serial.printf("Seleccionado opcion %d\n",opt);
+  #endif
   
 }
-void despertar()
+void aiMenu(int opcion)
 {
-  // Configurar retroiluminación. En realidad es encender o apagar la pantalla
-  digitalWrite(TFT_BL, HIGH); // poniendolo en HIGH encendemos la pantalla
-  tft.writecommand(TFT_DISPON);      // Encender la pantalla
-  tft.writecommand(TFT_SLPOUT);      // Sacar controlador del modo sueño
-  delay(120); // Esperar a que la pantalla se estabilice
-
+  if(opcion == 0)
+  {
+    tft.fillRect(0,109,54,8,TFT_WHITE); // fondo blanco
+    tft.setTextColor(TFT_BLACK);
+    tft.drawString("<Aceptar>",0,109);
+    tft.fillRect(0,118,54,8,TFT_BLACK);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("<Ignorar>",0,118);
+  }
+  else
+  {
+    tft.fillRect(0,109,54,8,TFT_BLACK); // fondo negro
+    tft.drawString("<Aceptar>",0,109);
+    tft.fillRect(0,118,54,8,TFT_WHITE);
+    tft.setTextColor(TFT_BLACK);
+    tft.drawString("<Ignorar>",0,118);
+    tft.setTextColor(TFT_WHITE);
+  }
+  
 }
 void dormir()
 {
   digitalWrite(TFT_BL, LOW); // poniendolo en low, apagamos la pantalla
   tft.writecommand(TFT_DISPOFF);    // Apagar la pantalla
   tft.writecommand(TFT_SLPIN);      // Poner controlador en modo sueño
-   // Primero desconectamos WiFi pero mantenemos la configuración
-   WiFi.disconnect(false);
-   delay(100);
-   // Detenemos el WiFi
-   esp_wifi_stop();
-   delay(100);
+  // Primero desconectamos WiFi pero mantenemos la configuración
+  WiFi.disconnect(false);
+  delay(100);
+  esp_wifi_stop();
+  Serial.println("WiFi apagado");
+  Serial.flush();
   esp_light_sleep_start();          // ponemos el ESP32 en light sleep para 5 segundos. En el setup hemos configurado que despierte al pulsar el boton del joystick
   delay(100);
+  Serial.println("despertado.");
   // Al despertar, reiniciamos el WiFi
   esp_wifi_start();
   delay(100);
@@ -228,7 +171,8 @@ void dormir()
   WiFi.begin(ssid, pass);
   // Esperamos a la conexión con timeout
   unsigned long startTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 5000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 5000) 
+  {
       delay(100);
   }
 }
@@ -255,9 +199,11 @@ void flechasDisable()
  */
 void obtenerMensajes()
 {
- tft.setFreeFont(&Salmon_Season20pt7b);
+ //tft.setFreeFont(&Salmon_Season20pt7b);
+ tft.setTextSize(2);
  tft.drawString(" ULTIMOS MENSAJES",0,0);
- tft.setFreeFont(&Salmon_Season12pt7b); 
+ //tft.setFreeFont(&Salmon_Season12pt7b); 
+ tft.setTextSize(1);
  tft.drawFastHLine(1, 33, 320, TFT_WHITE);
  tft.setCursor(0,55);
 
@@ -287,7 +233,7 @@ void regSys()
   String mac[1];
   mac[0] = "mac=";
   mac[0] += WiFi.macAddress();
-  tft.print("Registrando el dispositivo ");
+  tftPrint("Registrando el dispositivo ");
   tft.println(mac[0]);
   while (usuario == "null") // repetiremos hasta que el usuario tenga un valor
   {
@@ -300,21 +246,14 @@ void regSys()
     #endif
     delay(1000);  // esperamos un segundo
   }
-  
-  tft.printf("Registrado para el usuario %d\n %s", user, nombre.c_str());
+  tftPrint("**");
+  tft.println();
+  tftPrint("Registrado para el usuario " + nombre);
   #ifdef _DEBUG
   Serial.printf("Registrado para el usuario %d\n %s", user, nombre.c_str());
   #endif
 }
-/**
- *  Borrado de pantalla
- */
-void cls()
-{
- tft.fillScreen(TFT_BLACK);
- tft.setTextColor(TFT_WHITE, TFT_BLACK); // imprimiremos en blanco sobre negro
- tft.setCursor(0,16);
-}
+
 /**
  * Api
  * Hace una llamada al metodo del Api indicado con los parametros que van en el array
@@ -322,10 +261,7 @@ void cls()
  */
 void Api(char metodo[], String parametros[],int numparam)
 {
-  #ifdef _DEBUG
-  Serial.println("Entrada al api.");
-  #endif
-  int f, responsecode;
+   int f, responsecode;
   String postData, url, payload;
   DeserializationError error;   // por si esta mal formada la respuesta
 
@@ -523,12 +459,18 @@ String strNow()
   sprintf(formattedTime, "%02d:%02d:%02d", ptm->tm_hour, ptm->tm_min, ptm->tm_sec);
 return(formattedTime);
 }
+/**
+ * ISRs para el joystick
+ */
 void IRAM_ATTR upISR() 
 {
   unsigned long currentTime = millis();
   if (currentTime - lastDebounceTime[0] > debounceDelay) 
   {
     lastDebounceTime[0] = currentTime;
+    opt --;
+    if (opt<0)
+      opt=0;
   }
 }
 
@@ -538,6 +480,9 @@ void IRAM_ATTR downISR()
   if (currentTime - lastDebounceTime[1] > debounceDelay) 
   {
     lastDebounceTime[1] = currentTime;
+    opt ++;
+    if(opt>totalOpciones)
+      opt = totalOpciones;
   }
 }
 
@@ -564,7 +509,6 @@ void IRAM_ATTR pushISR()
   unsigned long currentTime = millis();
   if (currentTime - lastDebounceTime[4] > debounceDelay) 
   {
-    tft.print("pulsado");
     pulsado = true;
     lastDebounceTime[4] = currentTime;
   }

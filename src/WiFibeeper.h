@@ -1,4 +1,4 @@
-void WiFiStart()
+void WiFiStart() // Inicializa la conexion
 {
     tft.println("Inicializando WiFI ");
     String mensaje;

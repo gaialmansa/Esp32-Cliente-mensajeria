@@ -22,44 +22,22 @@ void iniScreen()
 }
 void dormirTFT()
 {
-  
-  //tft.writecommand(TFT_DISPOFF);    // Apagar la pantalla
-  //tft.writecommand(TFT_SLPIN);      // Poner controlador en modo sueño
   digitalWrite(TFT_BL, LOW); // poniendolo en low, apagamos la retroiluminacion
-  // Desactivar la visualización
-  //tft.writecommand(TFT_DISPOFF);  // Display OFF
   cls();
   tft.writecommand(TFT_SLPIN);      // Poner controlador en modo sueño
 }
-/**
- *  Despierta el chip de la TFT
- */
-void despertarTFT()
+void despertarTFT() //Despierta el chip de la TFT
 {
-  // Configurar retroiluminación. En realidad es encender o apagar la pantalla
-  /*digitalWrite(TFT_RST, LOW);
-  delay(10);
-  digitalWrite(TFT_RST, HIGH);
-  delay(120);
-  tft.writecommand(TFT_SLPOUT);*/
   iniScreen();
 }
-/**
- *  Borrado de pantalla
- */
-void cls()
+void cls() // Borrado de pantalla
 {
  tft.setTextColor(TFT_WHITE, TFT_BLACK); // imprimiremos en blanco sobre negro
  tft.fillRect(0, 0, TFT_HEIGHT, TFT_WIDTH, TFT_BLACK);
  tft.setCursor(0,0);
 }
-/**
- * Imprime una cadena en la tft. Si es demasiado ancha, la corta por donde haya un espacio 
- * e imprime el resto en la linea siguiente.
- * Siempre termina con CRLF
- */
-void tftPrint(String message)
-{
+void tftPrint(String message) //Imprime una cadena en la tft. Si es demasiado ancha, la corta por donde haya un espacio
+{                             //e imprime el resto en la linea siguiente.Siempre termina con CRLF
   #define ANCHOMENSAJE 27
   int lineHeight = 16;  // ajusta según tu tamaño de fuente
   

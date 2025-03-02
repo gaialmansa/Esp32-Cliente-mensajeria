@@ -8,29 +8,19 @@
 #include <WiFiUdp.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_sleep.h"
+#include "driver/rtc_io.h"
 #include <esp_pm.h>
+#include "driver/gpio.h"
 
 #include <local.h>
 
 
-#define nmensajes 7         // numero de mensajes que se recuperan por defecto. Como depende de la pantalla, lo dejamos aqui.
-#ifdef C3
-    #define UP_PIN 14           //pines del Joystick
-    #define DOWN_PIN 13
-    #define LEFT_PIN 12
-    #define RIGHT_PIN 26
-    #define PUSH_PIN 27
-    #define WAKEPIN GPIO_NUM_27 // configuramos el pulsador del boton para salir del Light Sleep mode
-#else
-    #define UP_PIN 0           //pines del Joystick
-    #define DOWN_PIN 1
-    #define LEFT_PIN 8
-    #define RIGHT_PIN 9
-    #define PUSH_PIN 3
-    #define WAKEPIN GPIO_NUM_3
-#endif
-
-
+#define UP_PIN 20           //pines del Joystick
+#define DOWN_PIN 9
+#define PUSH_PIN 21
+#define WAKEPIN GPIO_NUM_21 // configuramos el pulsador del boton para salir del Light Sleep mode
+#define VIBRADOR GPIO_NUM_0 // pin al que está conectado el vibrador
 
 void cls();
 void recuperarUsuariosGrupo(int grupo);
@@ -40,19 +30,24 @@ void Api(char metodo[], String parametros[], int numparam);
 void regSys();
 void upISR();
 void downISR();
-void leftISR();
-void rightISR();
 void pushISR();
 void despertarTFT();
+void dormirTFT();
 void dormir();
 void chkMsg();
+void vibrar();
 void hayMensajeNuevo();
 void iniScreen();
 void WiFiStart();
 void tftPrint(String);
 String replaceSpaces(String);
 String strNow();
-void aiMenu(int);
+void aiMenu();
+void listarMensajes();
+void imprimirMensaje(bool);
+void aitMenu();
+void flechasEnable();
+void flechasDisable();
 
 
 /*Las credenciales de la red WiFi están definidas en el fichero local.h, que está en gitignore.*/
@@ -68,7 +63,7 @@ int user = 0;            // id del usuario registrado
 bool pulsado = false;     // cambia de valor cuando se pulsa el joystick
 bool apiError = false;    // flag de error en la llamada al api
 // Variables para manejar el debounce
-volatile unsigned long lastDebounceTime[5] = {0, 0, 0, 0, 0};
+volatile unsigned long lastDebounceTime[3] = { 0, 0, 0};
 const unsigned long debounceDelay = 200;  // Ajusta este valor según necesites
 int opt = 0;            // opciones en el menu
-int totalOpciones = 1;   // opcion mas alta en el menu ( notese que empieza por cero)
+esp_sleep_wakeup_cause_t eventoWake; // Causa de la salida del sueño ligero

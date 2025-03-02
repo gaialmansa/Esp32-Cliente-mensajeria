@@ -6,113 +6,83 @@
 void setup() 
 {
     String mensaje;
-    #ifdef _DEBUG
-    Serial.begin(9600);
-    #endif
+
     // Inicializar pantalla
     iniScreen();
+    pinMode(TFT_BL, OUTPUT);  // pin para la iluminacion de la pantalla. Lo manejaremos con tftOn y tftOff  
     // inicializamos wifi
     WiFiStart();
-    
     // Puesta en hora
     timeClient.setTimeOffset(3600);
     timeClient.begin();
     if (!timeClient.update()) 
       tftPrint("Error al sincronizar NTP: SSL/conexion fallida");
     mensaje = "Ajustando hora:" + strNow();
-
     // Imprimimos la MAC en la pantalla
     cls();
     tft.println("MAC: ");
     tftPrint(WiFi.macAddress());
-    
-    #ifdef _DEBUG
-    Serial.println(mensaje);
-    #endif
-    apicall.setTimeout(5000);
+    apicall.setTimeout(5000);   // establecemos el tiempo maximo antes de dar un timeout al conectar con el API
     regSys();     // Chequeamos hasta que esta registrado en el sistema
-    #ifdef _DEBUG
-     delay(5000); // esperamos 1 segundos para que se vea el registro correcto
-    #endif
     cls();       // y borramos la pantalla 
 
-    // configuracion de los pines de entrada
+    // configuracion de los pines de entrada del mando y el vibrador
     pinMode(UP_PIN, INPUT_PULLUP);
     pinMode(DOWN_PIN, INPUT_PULLUP);
-    pinMode(LEFT_PIN, INPUT_PULLUP);
-    pinMode(RIGHT_PIN, INPUT_PULLUP);
     pinMode(PUSH_PIN, INPUT_PULLUP);
-  
-    // Configuracion de las interrupciones. De entrada solo puede usar el pulsador
-    attachInterrupt(PUSH_PIN, pushISR, FALLING);
-
+    pinMode(VIBRADOR,OUTPUT);
+    
     // Configurar el temporizador para despertar en 5 segundos
     esp_sleep_enable_timer_wakeup(5 * 1000000);
-    // Configurar la interrupción del botón para despertar el ESP32
-    //esp_sleep_enable_ext0_wakeup(WAKEPIN, 0); // 0 para FALLING, 1 para RISING
-    //gpio_wakeup_enable(GPIO_NUM_3, GPIO_INTR_LOW_LEVEL); // x es el pin que quieres usar
-    esp_sleep_enable_gpio_wakeup();
+    gpio_wakeup_enable(WAKEPIN, GPIO_INTR_LOW_LEVEL); // Habilitamos el wake up por GPIO
+    esp_sleep_enable_gpio_wakeup(); // Habilitamos el wake up por tiempo
+    attachInterrupt(PUSH_PIN, pushISR, FALLING);    // pulsador
 }
 void loop() 
 {
    chkMsg();    // consulta la API para ver si hay mensajes nuevos para el usuario
    dormir();  // apagamos la pantalla y ponemos el procesador en modo light sleep durante 5 segundos
 }
-/**
- *  chkMsg()
- *  A esta funcion se le llama cada 5 segundos si está inactivo. Consulta el API para ver si hay mensajes no vistos para el usuario.
- *  
- */
-void chkMsg()
+void chkMsg() // Consulta el API para ver si hay mensajes no vistos para el usuario. Si hay varios mensajes pendientes, los recupera todos.
 {
   String User[1];
   User[0] = "id_usuario=" + String(user);
   while (true)
   {
   Api("mnv",User,1);  // llamamos al api para recuperar el primer mensaje sin leer del usuario
-  if(!doc.containsKey("mensaje")) // esto es que no hay ningun mensaje
-    return;
-  hayMensajeNuevo();
+  if(doc.containsKey("mensaje") ) // esto es que hay mensaje
+   {
+    hayMensajeNuevo();
+    continue;
+   }
+  if (eventoWake == 7 or pulsado) // se desperto por pulsacion del boton o se pulso el boton cuando estaba despierto
+   {
+    listarMensajes();
+    pulsado = false;
+   }
+   
+  return;
   }
+  
 }
-/**
- *  hayMensajeNuevo
- *  enciende la pantalla y enseña el mensaje que se acaba de leer. Al terminar lo marca en la API como leido
- *  Se queda en bucle hasta que se pulsa el joystick
- */
-void hayMensajeNuevo()
+void hayMensajeNuevo() //enciende la pantalla y enseña el mensaje que se acaba de leer. Al terminar lo marca en la API como leido.Se queda en bucle hasta que se pulsa el joystick
 {
   int anterior;
+  flechasEnable();  // Habilitamos las teclas arriba y abajo
+  pulsado = false;
+  while (!pulsado)  //se queda vibrando hasta que se pulse
+    vibrar();
   despertarTFT();  //despierta la pantalla
   cls();
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_YELLOW);
-  tft.drawString("NUEVO MENSAJE",0,0);
-  tft.setTextSize(1);
-  tft.drawFastHLine(0, 17, 160, TFT_YELLOW);
-  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(0,30);
-  tft.print("De ");
-  tftPrint(doc["origen"].as<String>());
-  tftPrint(doc["mensaje"].as<String>());
-  tft.print("Enviado a las ");
-  String timestamp = doc["hora"].as<String>();
-  tftPrint(timestamp.substring(11,19));
-  tft.print("Recibido a las ");
-  tft.println(strNow());
-  tft.println();
-  aiMenu(opt);
+  imprimirMensaje(false); // flag false para mensaje nuevo 
+  aiMenu();
   anterior =0;  // opcion anteriormente seleccionada
   pulsado = false;
-  attachInterrupt(PUSH_PIN, pushISR, FALLING);    // pulsador
-  attachInterrupt(UP_PIN, upISR, FALLING);
-  attachInterrupt(DOWN_PIN, downISR, FALLING);
-
   while(!pulsado) // se queda bloqueado aqui hasta que pulse el mando
   {
     if (opt != anterior)  // se pulso arriba o abajo
     {
-      aiMenu(opt);
+      aiMenu();
       anterior = opt;
     } 
     delay(100);
@@ -121,16 +91,27 @@ void hayMensajeNuevo()
   parms[0] = "id=" + doc["id"].as<String>();
   Api("mver",parms,1);
   if(opt == 0) // aceptar
-   Api("matender",parms,1);   // si se ignora, no hace nada
-  cls();
-  #ifdef _DEBUG
-  Serial.printf("Seleccionado opcion %d\n",opt);
-  #endif
-  
+  {
+    //if ()
+    Api("matender",parms,1);   // si se ignora, no hace nada
+  }
+  cls(); 
+  flechasDisable();
 }
-void aiMenu(int opcion)
+void vibrar() //Activa el motor excéntrico
 {
-  if(opcion == 0)
+  digitalWrite(VIBRADOR,HIGH);  // conectamos el zumbador
+  delay(200);
+  digitalWrite(VIBRADOR,LOW); // Paramos el zumbador
+  delay(200);
+}
+void aiMenu() //Gestiona el menu Atender/Ignorar
+{
+  if (opt < 0)
+    opt = 1;
+  if (opt > 1)
+    opt = 0;
+  if(opt == 0)
   {
     tft.fillRect(0,109,54,8,TFT_WHITE); // fondo blanco
     tft.setTextColor(TFT_BLACK);
@@ -150,20 +131,124 @@ void aiMenu(int opcion)
   }
   
 }
-void dormir()
+void aitMenu() //Gestiona el menu Atender/Ignorar/Terminar
 {
-  digitalWrite(TFT_BL, LOW); // poniendolo en low, apagamos la pantalla
-  tft.writecommand(TFT_DISPOFF);    // Apagar la pantalla
-  tft.writecommand(TFT_SLPIN);      // Poner controlador en modo sueño
+  if (opt < 0)
+    opt = 2;
+  if (opt > 2)
+    opt = 0;
+  if(opt == 0)
+  {
+    tft.fillRect(0,100,54,8,TFT_WHITE); // fondo blanco
+    tft.setTextColor(TFT_BLACK);
+    tft.drawString("<Aceptar>",0,100);
+    tft.fillRect(0,109,54,8,TFT_BLACK);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("<Ignorar>",0,109);
+    tft.fillRect(0,118,54,8,TFT_BLACK);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("<Terminar>",0,118);
+  }
+  if(opt == 1)
+  {
+    tft.fillRect(0,100,54,8,TFT_BLACK); // fondo negro
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("<Aceptar>",0,100);
+    tft.fillRect(0,109,54,8,TFT_WHITE);
+    tft.setTextColor(TFT_BLACK);
+    tft.drawString("<Ignorar>",0,108);
+    tft.fillRect(0,118,54,8,TFT_BLACK);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("<Terminar>",0,118);
+  }
+  if(opt == 2)
+  {
+    tft.fillRect(0,100,54,8,TFT_BLACK); // fondo negro
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("<Aceptar>",0,100);
+    tft.fillRect(0,109,54,8,TFT_BLACK);
+    tft.drawString("<Ignorar>",0,109);
+    tft.fillRect(0,118,54,8,TFT_WHITE);
+    tft.setTextColor(TFT_BLACK);
+    tft.drawString("<Terminar>",0,118);
+    tft.setTextColor(TFT_WHITE);
+  }
+  
+}
+void imprimirMensaje(bool $pendiente) // Imprime el mensaje leido del Api en la tft
+{
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_YELLOW);  // Yelow= azul claro. White=blanco. Blue = rojo, Brown = azul. Black = marror muy oscuro (ilegible)
+  if($pendiente)
+    tft.drawString("MENSAJE PENDIENTE",0,0);  
+  else
+    tft.drawString("MENSAJE NUEVO",0,0);  //Caset = rojo oscuro . Cyan = amarillo . DarkCyan = amarillo oscuro.Magenta = magenta. Green=verde
+  tft.setTextSize(1);                   //Orange = azul claro. Pink = morado claro
+  tft.drawFastHLine(0, 17, 160, TFT_YELLOW);
+  tft.setTextColor(TFT_PINK);
+  tft.setCursor(0,30);
+  tft.print("De ");
+  tftPrint(doc["origen"].as<String>());
+  tft.setTextColor(TFT_CYAN);
+  tftPrint(doc["mensaje"].as<String>());
+  tft.setTextColor(TFT_PINK);
+  tft.print("Enviado a las ");
+  String timestamp = doc["hora"].as<String>();
+  tftPrint(timestamp.substring(11,19));
+  tft.print("Recibido a las ");
+  tft.println(strNow());
+  tft.println();
+  
+}
+void listarMensajes() // Se activa cuando se pulsa el boton con la pantalla apagada. Muestra los mensajes no atendidos.
+{
+  int anterior;
+  int offset = 0;   // el offset para recuperar los no leidos. 0 es el mas antiguo.
+  String parms[2];
+  despertarTFT();  //despierta la pantalla
+  cls();
+  parms[0] = "id_usuario="+user;
+  parms[1] = "offset="+0;
+  Api("mrpnat",parms,2);  // llamamos a la api para recuperar el primer mensaje no atendido
+  imprimirMensaje(true);  // lo sacamos por la tft. Flag de antiguo a true.
+  aitMenu();
+  anterior =0;  // opcion anteriormente seleccionada
+  pulsado = false;
+  //attachInterrupt(PUSH_PIN, pushISR, FALLING);    // pulsador
+  flechasEnable();  // habilitamos las teclas arriba y abajo
+
+  while(!pulsado) // se queda bloqueado aqui hasta que pulse el mando
+  {
+    if (opt != anterior)  // se pulso arriba o abajo
+    {
+      aitMenu();
+      anterior = opt;
+    } 
+    delay(100);
+  }
+  
+  parms[0] = "id=" + doc["id"].as<String>();
+  if(opt == 0) // aceptar
+  {
+    //if ()
+    Api("matender",parms,1);   // si se ignora, no hace nada
+  }
+  cls(); 
+  flechasDisable(); // deshabilitamos las interrupciones de arriba y abajo
+}
+void dormir() //Pone el dispositivo en modo Light Sleep. Al despertar, reinicia la wifi y la tft
+{
+  dormirTFT();
   // Primero desconectamos WiFi pero mantenemos la configuración
   WiFi.disconnect(false);
   delay(100);
   esp_wifi_stop();
-  Serial.println("WiFi apagado");
-  Serial.flush();
+  gpio_wakeup_enable(WAKEPIN, GPIO_INTR_LOW_LEVEL); // Habilitamos el wake up por GPIO
+  gpio_hold_en(GPIO_NUM_6); // preservamos el contenido del gpio_4. Con esto consigo que la pantalla no se quede blanca durante la hibernacion
+  eventoWake = (esp_sleep_wakeup_cause_t)0; // borramos el contenido anterior. Hay que hacer un cast al tipo especifico de dato
   esp_light_sleep_start();          // ponemos el ESP32 en light sleep para 5 segundos. En el setup hemos configurado que despierte al pulsar el boton del joystick
-  delay(100);
-  Serial.println("despertado.");
+  eventoWake = esp_sleep_get_wakeup_cause(); // identificamos por qué salio del sueño ligero
+  gpio_hold_dis(GPIO_NUM_6);
   // Al despertar, reiniciamos el WiFi
   esp_wifi_start();
   delay(100);
@@ -176,58 +261,17 @@ void dormir()
       delay(100);
   }
 }
-
-void flechasEnable()
+void flechasEnable() //Habilita el manejo de los botones arriba y abajo
 {
     attachInterrupt(UP_PIN, upISR, FALLING);
     attachInterrupt(DOWN_PIN, downISR, FALLING);
-    attachInterrupt(LEFT_PIN, leftISR, FALLING);
-    attachInterrupt(RIGHT_PIN, rightISR, FALLING);
-  
 }
-void flechasDisable()
+void flechasDisable() //Deshabilita el manejo de los botones arriba y abajo
 {
     detachInterrupt(UP_PIN);
     detachInterrupt(DOWN_PIN);
-    detachInterrupt(LEFT_PIN);
-    detachInterrupt(RIGHT_PIN);
-  
 }
-/**
- * ObtenerMensajes
- * recupera los (maximo 8) últimos mensajes, dependiendo de la variable global offset
- */
-void obtenerMensajes()
-{
- //tft.setFreeFont(&Salmon_Season20pt7b);
- tft.setTextSize(2);
- tft.drawString(" ULTIMOS MENSAJES",0,0);
- //tft.setFreeFont(&Salmon_Season12pt7b); 
- tft.setTextSize(1);
- tft.drawFastHLine(1, 33, 320, TFT_WHITE);
- tft.setCursor(0,55);
-
-
-
- String parametros[3]; // Primero declaramos el array con tamaño fijo
- parametros[0] = "id_usuario=" + String(user);
- parametros[1] = "nmensajes=" + String(nmensajes);
- parametros[2] = "offset=" + String(offset);
- Api("mrecuperar",parametros,3);
- JsonArray listaMensajes = doc.as<JsonArray>(); // recuperamos la respuesta
- for (int i = 0; i < listaMensajes.size(); i++) 
- {
-  JsonObject mensaje = listaMensajes[i].as<JsonObject>();
-  tft.println(mensaje["mensaje"].as<String>());
- }
- return ;
-}
-/**
- *  regSys
- *  Registra al usuario en el sistema. Se llama a la API, al metodo bregister(mac).
- *  Se mantiene la llamada en un bucle hasta que el usuario es no nulo. Entonces regresa y se ejecuta loop.
- */
-void regSys()
+void regSys() //Registra al usuario en el sistema.
 {
   String nombre,usuario = "null";
   String mac[1];
@@ -252,14 +296,8 @@ void regSys()
   #ifdef _DEBUG
   Serial.printf("Registrado para el usuario %d\n %s", user, nombre.c_str());
   #endif
-}
-
-/**
- * Api
- * Hace una llamada al metodo del Api indicado con los parametros que van en el array
- * Los parametros van en formato 'paramname=paramvalue'
- */
-void Api(char metodo[], String parametros[],int numparam)
+} 
+void Api(char metodo[], String parametros[],int numparam) //Hace una llamada al metodo del Api indicado con los parametros que van en el array Los parametros van en formato 'paramname=paramvalue'
 {
    int f, responsecode;
   String postData, url, payload;
@@ -297,7 +335,7 @@ void Api(char metodo[], String parametros[],int numparam)
     }
   payload = apicall.getString();
   error = deserializeJson(doc,payload);   // deserializamos la respuesta y la metemos en el objeto doc
-  #ifdef _DEBUG
+  /*#ifdef _DEBUG
   Serial.print("payload: ");
   Serial.println(payload);
     if (error) 
@@ -309,47 +347,9 @@ void Api(char metodo[], String parametros[],int numparam)
     Serial.println(payload);
     return;
     }
-  #endif
+  #endif*/
 }
-/**
- *  Envía un mensaje fijo. Esta funcion es para estar en sitios como la bandeja de Rx del control de enfermeria o en triaje
- *  TODO: hay que sacar la comunicacion con el cliente http y abstraerla en una funcion a que tome la URL de un #define en una cabecera
- *        y se pase el método del API  y los argumentos como parámetro, y que devuelva la respuesta del API como un array.
- */
-void enviarPlaca()
-{
-    HTTPClient http;   
-    // Iniciamos la conexión
-    String mensaje;
-    mensaje = replaceSpaces("Hay una petición de rayos en el control de urgencias"); 
-    http.begin("https://hospital.almansa.ovh/api/mcrearg");
-    // Especificamos el header content-type
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    // Preparamos los datos POST
-    String postData = "id_grupo=4&id_usuario_o=1&mensaje=" + mensaje;
-
-    // Hacemos la petición POST
-    int httpResponseCode = http.POST(postData);
-    // Verificamos la respuesta
-    if(httpResponseCode < 0)
-        tft.print("Error enviando mensaje");
-    else
-        {
-        tft.setTextSize(2);
-        cls();
-        if (httpResponseCode == 200)
-        {
-            tft.println("Mensaje enviado");
-            tft.println("a las " + strNow());
-            Serial.println(httpResponseCode);
-        }
-        }
-
-}
-/*
-*   Recupera la lista de usuarios de un grupo dado
-*/
-void recuperarUsuariosGrupo(int grupo)
+void recuperarUsuariosGrupo(int grupo) //Recupera la lista de usuarios de un grupo dado
 {
  HTTPClient http;
  int f;    
@@ -426,10 +426,7 @@ void recuperarUsuariosGrupo(int grupo)
     // Liberamos recursos
     http.end();
 }
-/*
-*   Reemplaza los espacios en str por %20
-*/
-String replaceSpaces(String str) 
+String replaceSpaces(String str) //Reemplaza los espacios en str por %20
 {
   String result = "";
   for (int i = 0; i < str.length(); i++) {
@@ -441,10 +438,7 @@ String replaceSpaces(String str)
   }
   return result;
 }
-/**
- *  Recupera la hora actual y devuelve un string para imprimir
- */
-String strNow()
+String strNow() //Recupera la hora actual y devuelve un string para imprimir
 {
   timeClient.update();
 
@@ -459,58 +453,31 @@ String strNow()
   sprintf(formattedTime, "%02d:%02d:%02d", ptm->tm_hour, ptm->tm_min, ptm->tm_sec);
 return(formattedTime);
 }
-/**
- * ISRs para el joystick
- */
-void IRAM_ATTR upISR() 
+void IRAM_ATTR upISR() // ISR up
 {
   unsigned long currentTime = millis();
   if (currentTime - lastDebounceTime[0] > debounceDelay) 
   {
     lastDebounceTime[0] = currentTime;
     opt --;
-    if (opt<0)
-      opt=0;
   }
 }
-
-void IRAM_ATTR downISR() 
+void IRAM_ATTR downISR() // ISR down
 {
   unsigned long currentTime = millis();
   if (currentTime - lastDebounceTime[1] > debounceDelay) 
   {
     lastDebounceTime[1] = currentTime;
     opt ++;
-    if(opt>totalOpciones)
-      opt = totalOpciones;
   }
 }
-
-void IRAM_ATTR leftISR() 
-{
-  unsigned long currentTime = millis();
-  if (currentTime - lastDebounceTime[2] > debounceDelay) 
-  {
-    lastDebounceTime[2] = currentTime;
-  }
-}
-
-void IRAM_ATTR rightISR() 
-{
-  unsigned long currentTime = millis();
-  if (currentTime - lastDebounceTime[3] > debounceDelay) 
-  {
-    lastDebounceTime[3] = currentTime;
-  }
-}
-
-void IRAM_ATTR pushISR() 
+void IRAM_ATTR pushISR() // ISR push
 {
   unsigned long currentTime = millis();
   if (currentTime - lastDebounceTime[4] > debounceDelay) 
   {
     pulsado = true;
-    lastDebounceTime[4] = currentTime;
+    lastDebounceTime[2] = currentTime;
   }
 
 }

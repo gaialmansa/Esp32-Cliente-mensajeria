@@ -1,35 +1,35 @@
-#define ST7735
-//#define ST7789
 
-// Para ST7735S
-#ifdef ST7735
-  #define TFT_SLPIN   0x10
-  #define TFT_SLPOUT  0x11
-  #define INVERT false
-  #define TFT_WIDTH  128
-  #define TFT_HEIGHT 160
-#endif
-
-// Para ST7789
-#ifdef ST7789
-  #define TFT_SLPIN   0x10
-  #define TFT_SLPOUT  0x11
-  #define INVERT true
-  #define TFT_WIDTH  240
-  #define TFT_HEIGHT 320
-#endif
+#define TFT_BL  6  // BLK pin
+#define TFT_SLPOUT 11
+#define TFT_SLPIN 10
+#define TFT_WIDTH  128
+#define TFT_HEIGHT 160
+#define TFT_MOSI 10
+#define TFT_SCLK 8
+#define TFT_CS   5  // Chip select control pin
+#define TFT_DC    3  // Data Command control pin
+#define TFT_RST   4  // Reset pin (could connect to RST pin)
 
 void iniScreen()
 {
-    pinMode(TFT_BL, OUTPUT);  // pin para la iluminacion de la pantalla. Lo manejaremos con tftOn y tftOff  
-    tft.init();
-    tft.setRotation(1);  // 0 Portrait/ 1 Landscape
-    tft.invertDisplay(INVERT);
-    tft.setTextWrap(true);  // Habilita el ajuste de texto
-    tft.setTextSize(1);
-    cls();
-    despertarTFT();              // terminamos de poner a punto la pantalla tft
-    delay(200);
+  digitalWrite(TFT_BL, HIGH); // poniendolo en HIGH encendemos la pantalla
+  tft.init();          // Inicializa la pantalla
+  tft.setRotation(1);  // Ajusta la orientación (0, 1, 2, 3)
+  tft.fillScreen(TFT_BLACK); // Limpia la pantalla con color negro
+  tft.setTextColor(TFT_WHITE, TFT_BLACK); // Color del texto y fondo
+  tft.setTextSize(1); // Tamaño del texto
+  cls();
+}
+void dormirTFT()
+{
+  
+  //tft.writecommand(TFT_DISPOFF);    // Apagar la pantalla
+  //tft.writecommand(TFT_SLPIN);      // Poner controlador en modo sueño
+  digitalWrite(TFT_BL, LOW); // poniendolo en low, apagamos la retroiluminacion
+  // Desactivar la visualización
+  //tft.writecommand(TFT_DISPOFF);  // Display OFF
+  cls();
+  tft.writecommand(TFT_SLPIN);      // Poner controlador en modo sueño
 }
 /**
  *  Despierta el chip de la TFT
@@ -37,11 +37,12 @@ void iniScreen()
 void despertarTFT()
 {
   // Configurar retroiluminación. En realidad es encender o apagar la pantalla
-  digitalWrite(TFT_BL, HIGH); // poniendolo en HIGH encendemos la pantalla
-  tft.writecommand(TFT_DISPON);      // Encender la pantalla
-  tft.writecommand(TFT_SLPOUT);      // Sacar controlador del modo sueño
-  delay(120); // Esperar a que la pantalla se estabilice
-
+  /*digitalWrite(TFT_RST, LOW);
+  delay(10);
+  digitalWrite(TFT_RST, HIGH);
+  delay(120);
+  tft.writecommand(TFT_SLPOUT);*/
+  iniScreen();
 }
 /**
  *  Borrado de pantalla
@@ -50,6 +51,7 @@ void cls()
 {
  tft.setTextColor(TFT_WHITE, TFT_BLACK); // imprimiremos en blanco sobre negro
  tft.fillRect(0, 0, TFT_HEIGHT, TFT_WIDTH, TFT_BLACK);
+ tft.setCursor(0,0);
 }
 /**
  * Imprime una cadena en la tft. Si es demasiado ancha, la corta por donde haya un espacio 

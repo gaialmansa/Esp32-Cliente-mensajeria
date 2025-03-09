@@ -26,7 +26,7 @@ void cls();
 void recuperarUsuariosGrupo(int grupo);
 void enviarPlaca();
 void obtenerMensajes();
-void Api(char metodo[], String parametros[], int numparam);
+String Api(char metodo[], String parametros[], int numparam);
 void regSys();
 void upISR();
 void downISR();
@@ -44,10 +44,12 @@ String replaceSpaces(String);
 String strNow();
 void aiMenu();
 void listarMensajes();
-void imprimirMensaje(bool);
+void imprimirMensaje(bool, JsonObject);
 void aitMenu();
 void flechasEnable();
 void flechasDisable();
+void noHayPendientes();
+void atendido();
 
 
 /*Las credenciales de la red WiFi están definidas en el fichero local.h, que está en gitignore.*/

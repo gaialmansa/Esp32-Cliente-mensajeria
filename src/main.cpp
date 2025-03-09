@@ -3,12 +3,17 @@
 #include <tft.h>
 #include <WiFibeeper.h>
 
+String borrame;
+
+
 void setup() 
 {
     String mensaje;
-
     // Inicializar pantalla
     iniScreen();
+    cls();
+    tft.println("MAC: ");
+    tftPrint(WiFi.macAddress());
     pinMode(TFT_BL, OUTPUT);  // pin para la iluminacion de la pantalla. Lo manejaremos con tftOn y tftOff  
     // inicializamos wifi
     WiFiStart();
@@ -19,9 +24,7 @@ void setup()
       tftPrint("Error al sincronizar NTP: SSL/conexion fallida");
     mensaje = "Ajustando hora:" + strNow();
     // Imprimimos la MAC en la pantalla
-    cls();
-    tft.println("MAC: ");
-    tftPrint(WiFi.macAddress());
+  
     apicall.setTimeout(5000);   // establecemos el tiempo maximo antes de dar un timeout al conectar con el API
     regSys();     // Chequeamos hasta que esta registrado en el sistema
     cls();       // y borramos la pantalla 
@@ -49,6 +52,7 @@ void chkMsg() // Consulta el API para ver si hay mensajes no vistos para el usua
   User[0] = "id_usuario=" + String(user);
   while (true)
   {
+  //Api("exrtime",User,1);
   Api("mnv",User,1);  // llamamos al api para recuperar el primer mensaje sin leer del usuario
   if(doc.containsKey("mensaje") ) // esto es que hay mensaje
    {
@@ -68,14 +72,17 @@ void chkMsg() // Consulta el API para ver si hay mensajes no vistos para el usua
 void hayMensajeNuevo() //enciende la pantalla y enseña el mensaje que se acaba de leer. Al terminar lo marca en la API como leido.Se queda en bucle hasta que se pulsa el joystick
 {
   int anterior;
+  String retApi;
   flechasEnable();  // Habilitamos las teclas arriba y abajo
   pulsado = false;
   while (!pulsado)  //se queda vibrando hasta que se pulse
     vibrar();
   despertarTFT();  //despierta la pantalla
   cls();
-  imprimirMensaje(false); // flag false para mensaje nuevo 
+  imprimirMensaje(false,doc.as<JsonObject>()); // flag false para mensaje nuevo 
   aiMenu();
+  String parms[1];
+  parms[0] = "id=" + doc["id"].as<String>();
   anterior =0;  // opcion anteriormente seleccionada
   pulsado = false;
   while(!pulsado) // se queda bloqueado aqui hasta que pulse el mando
@@ -87,16 +94,34 @@ void hayMensajeNuevo() //enciende la pantalla y enseña el mensaje que se acaba 
     } 
     delay(100);
   }
-  String parms[1];
-  parms[0] = "id=" + doc["id"].as<String>();
-  Api("mver",parms,1);
+  String p[1];
+  p[0] = "id_mensaje=" + doc["id_mensaje"].as<String>(); // con el doc de la lectura del mensaje, guardamos para la llamada de comprobacion
+  Api("mver",parms,1);    // marca el mensaje como visto
   if(opt == 0) // aceptar
   {
-    //if ()
-    Api("matender",parms,1);   // si se ignora, no hace nada
+    retApi = Api("mat",p,1); // chequeamos a ver si el mensaje ya lo ha aceptado otro usuario
+    delay(1000); // se queda bloqueado aqui hasta que pulse el mando
+    if ( retApi == "null" ) // esto es que el mensaje no ha sido atendido
+      {
+      Api("matender",parms,1);   // si se ignora, no hace nada
+      }
+    else
+      {
+      atendido();
+      }
   }
   cls(); 
   flechasDisable();
+  pulsado = false;
+}
+void atendido() //El mensaje ya ha sido atendido
+{
+  cls();
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_YELLOW);  // Yelow= azul claro. White=blanco. Blue = rojo, Brown = azul. Black = marror muy oscuro (ilegible)
+  tft.setCursor(0,50);
+  tftPrint("Otro usuario atendio el mensaje.");
+  delay(2000);   
 }
 void vibrar() //Activa el motor excéntrico
 {
@@ -175,12 +200,20 @@ void aitMenu() //Gestiona el menu Atender/Ignorar/Terminar
   }
   
 }
-void imprimirMensaje(bool $pendiente) // Imprime el mensaje leido del Api en la tft
+void noHayPendientes() // Imprime en pantalla que no hay mensajes pendientes
+{
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_YELLOW);  // Yelow= azul claro. White=blanco. Blue = rojo, Brown = azul. Black = marror muy oscuro (ilegible)
+    tft.setCursor(0,50);
+    tftPrint("No hay mensajes pendientes");
+    delay(2000);    
+}
+void imprimirMensaje(bool $pendiente, JsonObject cdoc) // Imprime el mensaje leido del Api en la tft
 {
   tft.setTextSize(2);
   tft.setTextColor(TFT_YELLOW);  // Yelow= azul claro. White=blanco. Blue = rojo, Brown = azul. Black = marror muy oscuro (ilegible)
   if($pendiente)
-    tft.drawString("MENSAJE PENDIENTE",0,0);  
+    tft.drawString("MSG PENDIENTE",0,0);  
   else
     tft.drawString("MENSAJE NUEVO",0,0);  //Caset = rojo oscuro . Cyan = amarillo . DarkCyan = amarillo oscuro.Magenta = magenta. Green=verde
   tft.setTextSize(1);                   //Orange = azul claro. Pink = morado claro
@@ -188,51 +221,62 @@ void imprimirMensaje(bool $pendiente) // Imprime el mensaje leido del Api en la 
   tft.setTextColor(TFT_PINK);
   tft.setCursor(0,30);
   tft.print("De ");
-  tftPrint(doc["origen"].as<String>());
+  tftPrint(cdoc["origen"].as<String>());
   tft.setTextColor(TFT_CYAN);
-  tftPrint(doc["mensaje"].as<String>());
+  tftPrint(cdoc["mensaje"].as<String>());
   tft.setTextColor(TFT_PINK);
   tft.print("Enviado a las ");
-  String timestamp = doc["hora"].as<String>();
-  tftPrint(timestamp.substring(11,19));
+  String timestamp = cdoc["hora"].as<String>();
+  tft.println(timestamp.substring(11,19));
   tft.print("Recibido a las ");
   tft.println(strNow());
-  tft.println();
-  
+  //tft.println(borrame);
 }
 void listarMensajes() // Se activa cuando se pulsa el boton con la pantalla apagada. Muestra los mensajes no atendidos.
 {
-  int anterior;
+  int anterior,numeroMensajes, mensajeActual = 0;
   int offset = 0;   // el offset para recuperar los no leidos. 0 es el mas antiguo.
   String parms[2];
   despertarTFT();  //despierta la pantalla
   cls();
-  parms[0] = "id_usuario="+user;
-  parms[1] = "offset="+0;
-  Api("mrpnat",parms,2);  // llamamos a la api para recuperar el primer mensaje no atendido
-  imprimirMensaje(true);  // lo sacamos por la tft. Flag de antiguo a true.
-  aitMenu();
-  anterior =0;  // opcion anteriormente seleccionada
-  pulsado = false;
-  //attachInterrupt(PUSH_PIN, pushISR, FALLING);    // pulsador
-  flechasEnable();  // habilitamos las teclas arriba y abajo
+  parms[0] = "id_usuario="+(String)user;
+  parms[1] += "offset=0";
+  Api("mrnat",parms,2);  // llamamos a la api para recuperar el primer mensaje no atendido
+  if( doc.isNull() ) // esto es que no hay mensaje
+   {
+    noHayPendientes();
+    return;
+   }
+  JsonArray mensajesPendientes = doc.as<JsonArray>(); // El Api devuelve un array Json. Ahora esta en mensajesPendientes
+  numeroMensajes = mensajesPendientes.size();
+  while (mensajeActual < numeroMensajes)
+  {
+    cls();
+    imprimirMensaje(true,mensajesPendientes[mensajeActual]);  // lo sacamos por la tft. Flag de antiguo a true.ponemos el mensaje en curso 
+    aitMenu();
+    anterior =0;  // opcion anteriormente seleccionada
+    pulsado = false;
+    //attachInterrupt(PUSH_PIN, pushISR, FALLING);    // pulsador
+    flechasEnable();  // habilitamos las teclas arriba y abajo
 
-  while(!pulsado) // se queda bloqueado aqui hasta que pulse el mando
-  {
-    if (opt != anterior)  // se pulso arriba o abajo
+    while(!pulsado) // se queda bloqueado aqui hasta que pulse el mando
     {
-      aitMenu();
-      anterior = opt;
-    } 
-    delay(100);
-  }
-  
-  parms[0] = "id=" + doc["id"].as<String>();
-  if(opt == 0) // aceptar
-  {
-    //if ()
-    Api("matender",parms,1);   // si se ignora, no hace nada
-  }
+      if (opt != anterior)  // se pulso arriba o abajo
+      {
+        aitMenu();
+        anterior = opt;
+      } 
+      delay(100);
+    }
+    parms[0] = "id=" + doc["id"].as<String>();
+    if(opt == 0) // aceptar
+      Api("matender",parms,1);   // si se ignora, no hace nada
+    
+    if (opt == 1)  // ignorar
+      mensajeActual++;
+    if (opt == 3)   // terminar
+      mensajeActual = numeroMensajes; // fin del bucle
+  } 
   cls(); 
   flechasDisable(); // deshabilitamos las interrupciones de arriba y abajo
 }
@@ -277,6 +321,7 @@ void regSys() //Registra al usuario en el sistema.
   String mac[1];
   mac[0] = "mac=";
   mac[0] += WiFi.macAddress();
+  cls();
   tftPrint("Registrando el dispositivo ");
   tft.println(mac[0]);
   while (usuario == "null") // repetiremos hasta que el usuario tenga un valor
@@ -285,24 +330,17 @@ void regSys() //Registra al usuario en el sistema.
     usuario = doc["usuario"].as<String>();
     nombre = doc["nombre" ].as<String>();
     user = doc["id_usuario"].as<int>();
-    #ifdef _DEBUG
-    Serial.println("No registrado.");
-    #endif
     delay(1000);  // esperamos un segundo
   }
   tftPrint("**");
   tft.println();
   tftPrint("Registrado para el usuario " + nombre);
-  #ifdef _DEBUG
-  Serial.printf("Registrado para el usuario %d\n %s", user, nombre.c_str());
-  #endif
 } 
-void Api(char metodo[], String parametros[],int numparam) //Hace una llamada al metodo del Api indicado con los parametros que van en el array Los parametros van en formato 'paramname=paramvalue'
+String Api(char metodo[], String parametros[],int numparam) //Hace una llamada al metodo del Api indicado con los parametros que van en el array Los parametros van en formato 'paramname=paramvalue'
 {
    int f, responsecode;
   String postData, url, payload;
   DeserializationError error;   // por si esta mal formada la respuesta
-
   postData = parametros[0];
   if(numparam >1)
   {
@@ -312,44 +350,24 @@ void Api(char metodo[], String parametros[],int numparam) //Hace una llamada al 
         postData += parametros[f];
       }
   }
+  borrame = postData;
   url = _URL;
   url += metodo; // con esto queda formada la url del API con su metodo al final
-  #ifdef _DEBUG
-  Serial.println(postData);
-  Serial.println(url);
-  #endif
   apicall.begin(url);    // iniciamos la llamada al api
   // Especificamos el header content-type
   apicall.addHeader("Content-Type", "application/x-www-form-urlencoded");
   responsecode = apicall.POST(postData);  
-    if(responsecode != 200)
+  if(responsecode != 200)
     {
       tft.printf("Ha habido un error %d al comunicar con el api.\n",responsecode);
       tft.println(url);
       tft.println(postData);
-      #ifdef _DEBUG
-      Serial.printf("Ha habido un error %d al comunicar con el api.\n",responsecode);
-      apiError = true;
-      #endif
-
     }
   payload = apicall.getString();
   error = deserializeJson(doc,payload);   // deserializamos la respuesta y la metemos en el objeto doc
-  /*#ifdef _DEBUG
-  Serial.print("payload: ");
-  Serial.println(payload);
-    if (error) 
-    {
-    tft.print("Error al parsear JSON: ");
-    tft.println(error.f_str());
-    Serial.print("Error al parsear JSON: ");
-    Serial.println(error.f_str());
-    Serial.println(payload);
-    return;
-    }
-  #endif*/
+  return(payload);
 }
-void recuperarUsuariosGrupo(int grupo) //Recupera la lista de usuarios de un grupo dado
+/*void recuperarUsuariosGrupo(int grupo) //Recupera la lista de usuarios de un grupo dado
 {
  HTTPClient http;
  int f;    
@@ -425,7 +443,7 @@ void recuperarUsuariosGrupo(int grupo) //Recupera la lista de usuarios de un gru
     
     // Liberamos recursos
     http.end();
-}
+}*/
 String replaceSpaces(String str) //Reemplaza los espacios en str por %20
 {
   String result = "";

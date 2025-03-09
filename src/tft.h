@@ -12,13 +12,13 @@
 
 void iniScreen()
 {
-  digitalWrite(TFT_BL, HIGH); // poniendolo en HIGH encendemos la pantalla
   tft.init();          // Inicializa la pantalla
   tft.setRotation(1);  // Ajusta la orientación (0, 1, 2, 3)
   tft.fillScreen(TFT_BLACK); // Limpia la pantalla con color negro
   tft.setTextColor(TFT_WHITE, TFT_BLACK); // Color del texto y fondo
   tft.setTextSize(1); // Tamaño del texto
   cls();
+  digitalWrite(TFT_BL, HIGH); // poniendolo en HIGH encendemos la pantalla
 }
 void dormirTFT()
 {

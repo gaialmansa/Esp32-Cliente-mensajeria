@@ -36,13 +36,18 @@ void setup()
     pinMode(VIBRADOR,OUTPUT);
     
     // Configurar el temporizador para despertar en 5 segundos
-    esp_sleep_enable_timer_wakeup(5 * 1000000);
-    gpio_wakeup_enable(WAKEPIN, GPIO_INTR_LOW_LEVEL); // Habilitamos el wake up por GPIO
-    esp_sleep_enable_gpio_wakeup(); // Habilitamos el wake up por tiempo
+    //esp_sleep_enable_timer_wakeup(5 * 1000000);
+    //gpio_wakeup_enable(WAKEPIN, GPIO_INTR_LOW_LEVEL); // Habilitamos el wake up por GPIO
+    //esp_sleep_enable_gpio_wakeup(); // Habilitamos el wake up por tiempo
     attachInterrupt(PUSH_PIN, pushISR, FALLING);    // pulsador
 }
 void loop() 
 {
+  if (WiFi.status() != WL_CONNECTED)
+    {
+      //Serial.println("Error: Conexión WiFi perdida.");
+      WiFiStart();
+    }
    chkMsg();    // consulta la API para ver si hay mensajes nuevos para el usuario
    dormir();  // apagamos la pantalla y ponemos el procesador en modo light sleep durante 5 segundos
 }
@@ -283,27 +288,28 @@ void listarMensajes() // Se activa cuando se pulsa el boton con la pantalla apag
 void dormir() //Pone el dispositivo en modo Light Sleep. Al despertar, reinicia la wifi y la tft
 {
   dormirTFT();
+  delay(1000);
   // Primero desconectamos WiFi pero mantenemos la configuración
-  WiFi.disconnect(false);
-  delay(100);
-  esp_wifi_stop();
-  gpio_wakeup_enable(WAKEPIN, GPIO_INTR_LOW_LEVEL); // Habilitamos el wake up por GPIO
-  gpio_hold_en(GPIO_NUM_6); // preservamos el contenido del gpio_4. Con esto consigo que la pantalla no se quede blanca durante la hibernacion
-  eventoWake = (esp_sleep_wakeup_cause_t)0; // borramos el contenido anterior. Hay que hacer un cast al tipo especifico de dato
-  esp_light_sleep_start();          // ponemos el ESP32 en light sleep para 5 segundos. En el setup hemos configurado que despierte al pulsar el boton del joystick
-  eventoWake = esp_sleep_get_wakeup_cause(); // identificamos por qué salio del sueño ligero
-  gpio_hold_dis(GPIO_NUM_6);
+  //WiFi.disconnect(false);
+  //delay(100);
+  //esp_wifi_stop();
+  //gpio_wakeup_enable(WAKEPIN, GPIO_INTR_LOW_LEVEL); // Habilitamos el wake up por GPIO
+  //gpio_hold_en(GPIO_NUM_6); // preservamos el contenido del gpio_4. Con esto consigo que la pantalla no se quede blanca durante la hibernacion
+  //eventoWake = (esp_sleep_wakeup_cause_t)0; // borramos el contenido anterior. Hay que hacer un cast al tipo especifico de dato
+  //esp_light_sleep_start();          // ponemos el ESP32 en light sleep para 5 segundos. En el setup hemos configurado que despierte al pulsar el boton del joystick
+  //eventoWake = esp_sleep_get_wakeup_cause(); // identificamos por qué salio del sueño ligero
+  //gpio_hold_dis(GPIO_NUM_6);
   // Al despertar, reiniciamos el WiFi
-  esp_wifi_start();
-  delay(100);
+  //esp_wifi_start();
+  //delay(100);
   // Reconectamos
-  WiFi.begin(ssid, pass);
+  //WiFi.begin(ssid, pass);
   // Esperamos a la conexión con timeout
-  unsigned long startTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 5000) 
-  {
-      delay(100);
-  }
+  //unsigned long startTime = millis();
+  //while (WiFi.status() != WL_CONNECTED && millis() - startTime < 5000) 
+  //{
+  //    delay(100);
+  //}
 }
 void flechasEnable() //Habilita el manejo de los botones arriba y abajo
 {
@@ -367,83 +373,6 @@ String Api(char metodo[], String parametros[],int numparam) //Hace una llamada a
   error = deserializeJson(doc,payload);   // deserializamos la respuesta y la metemos en el objeto doc
   return(payload);
 }
-/*void recuperarUsuariosGrupo(int grupo) //Recupera la lista de usuarios de un grupo dado
-{
- HTTPClient http;
- int f;    
-    // Iniciamos la conexión
-    http.begin("https://hospital.almansa.ovh/api/recuperarusuariosgrupo");
-    //http.begin("http://192.168.10.152/mensajeria/api/recuperarusuariosgrupo");
-    // Especificamos el header content-type
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    // Preparamos los datos POST
-    String postData = "id_grupo="+ String(grupo); 
-    // Hacemos la petición POST
-    int httpResponseCode = http.POST(postData);
-    // Verificamos la respuesta
-    if(httpResponseCode > 0)
-    {
-      String response = http.getString();
-      cls();
-      tft.setTextFont(2);
-      tft.println(response);
-      #ifdef _DEBUG
-      Serial.println(response);
-      #endif
-      const size_t capacity = JSON_ARRAY_SIZE(10) * (JSON_OBJECT_SIZE(7) + 50); // Ajustar el tamaño según tu JSON
-      DynamicJsonDocument doc(capacity);
-      DeserializationError error = deserializeJson(doc, response);
-      #ifdef _DEBUG
-      Serial.println("Ya ha desserializado la respuesta");
-      #endif
-        if(!error)
-        {
-            JsonArray usuarios = doc.as<JsonArray>();
-            #ifdef _DEBUG
-            Serial.println("No error. ");
-            Serial.println(usuarios.size());
-            #endif
-            for (JsonVariant usuario : usuarios) 
-            {
-                #ifdef _DEBUG
-                Serial.println("Estamos en el bucle");
-                #endif
-                String id_grupo = usuario["id_grupo"];
-                String id_usuario = usuario["id_usuario"];
-                String id = usuario["id"];
-                String usuario_nombre = usuario["usuario"];
-                String nombre = usuario["nombre"];
-                String observaciones = usuario["observaciones"];
-                String grupo = usuario["grupo"];
-                #ifdef _DEBUG
-                Serial.print("ID Grupo: ");
-                Serial.println(id_grupo);
-                Serial.println(nombre);
-                #endif
-                tft.println(nombre);
-                // ... (Imprimir otros campos)
-            }
-        }
-        else
-        {
-            tft.println("Se ha producido un error");
-            #ifdef _DEBUG
-            Serial.println("Se ha producido un error");
-            Serial.println(response);
-            #endif
-        }
-    }
-    else 
-    {
-      #ifdef _DEBUG
-      Serial.println("Error en petición HTTP: " + String(httpResponseCode));
-       #endif
-      tft.println("Error en petición HTTP: " + String(httpResponseCode));
-    }
-    
-    // Liberamos recursos
-    http.end();
-}*/
 String replaceSpaces(String str) //Reemplaza los espacios en str por %20
 {
   String result = "";
